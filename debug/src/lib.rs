@@ -2,7 +2,7 @@ use std::collections::{HashSet, HashMap};
 
 use proc_macro2::{TokenStream, TokenTree, Span};
 use quote::{quote, ToTokens};
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Result, Error, Meta, Expr, spanned::Spanned, Lit, Type, PathArguments, Generics, Fields, GenericArgument, LitStr};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Result, Error, Meta, Expr, spanned::Spanned, Lit, Type, PathArguments, Generics, Fields, GenericArgument, LitStr, MetaNameValue};
 
 
 #[proc_macro_derive(CustomDebug, attributes(debug))]
@@ -65,10 +65,19 @@ fn derive_impl(input: DeriveInput) -> Result<TokenStream> {
         let bound_generics = get_uses_of_generics(&input.generics, fields)?;
         if !bound_generics.is_empty() {
             let bound_params: TokenStream = bound_generics.into_iter().map(|param| {
-                quote!{
-                    #param: ::std::fmt::Debug,
-                }
-            }).collect();
+                Ok(match param {
+                    GenericType::Bound(bound) => {
+                        let bound: TokenStream = bound.parse()?;
+                        quote! {
+                            #bound,
+                        }
+                    },
+                    GenericType::Unbound(unbound) => quote!{
+                        #unbound: ::std::fmt::Debug,
+                    },
+                })
+                
+            }).collect::<Result<_>>()?;
             quote! {
                 where
                     #bound_params
@@ -117,6 +126,7 @@ fn parse_annotations(inp: &TokenStream) -> Result<HashMap<String, (Span, LitStr)
             None => break,
         };
 
+
         let equals = tokens.next().ok_or(too_few(name.clone().into_token_stream()))?;
 
         let info = tokens.next().ok_or(too_few(TokenStream::from_iter(vec![name.clone(),equals.clone()])))?;
@@ -148,6 +158,10 @@ fn parse_annotations(inp: &TokenStream) -> Result<HashMap<String, (Span, LitStr)
 
         //eprintln!("{} = {}", name_ident, info_str.to_token_stream());
 
+        if parsed_tokens.contains_key(&name_ident.to_string()) {
+            return Err(Error::new(name_ident.span(), "This attribute has already been defined!"));
+        }
+
         parsed_tokens.insert(name_ident.to_string(), (name_ident.span(), info_str));
 
 
@@ -166,7 +180,11 @@ fn parse_annotations(inp: &TokenStream) -> Result<HashMap<String, (Span, LitStr)
     Ok(parsed_tokens)
 }
 
-fn get_uses_of_generics(generics: &Generics, fields: &Fields) -> Result<Vec<Type>> {
+enum GenericType {
+    Bound(LitStr),
+    Unbound(Type)
+}
+fn get_uses_of_generics(generics: &Generics, fields: &Fields) -> Result<Vec<GenericType>> {
     let mut found = HashMap::new();
     let generics: HashSet<String> = HashSet::from_iter(generics.params
         .clone()
@@ -184,23 +202,50 @@ fn get_uses_of_generics(generics: &Generics, fields: &Fields) -> Result<Vec<Type
     //eprintln!("{:?}", generics);
 
     for field in fields {
-        inner_generic_uses(&generics, &field.ty, &mut found)?;
+        let bounds = field.attrs.iter().filter_map(|attr| {
+            match &attr.meta {
+                Meta::List(ls) => {
+                    let annotations = parse_annotations(&ls.tokens.to_token_stream());
+
+                    let mut annotations = match annotations {
+                        Ok(a) => a,
+                        Err(b) => return Some(Err(b)),
+                    };
+
+                    let bound = annotations.remove("bound");
+
+                    if let Some((_, (span, _))) = annotations.into_iter().next() {
+                        Some(Err(Error::new(span, "Invalid attribute! Expected `bound = \"...\"`")))
+                    } else {
+                        bound.map(Ok)
+                    }
+                },
+                _ => None,
+            }
+        }).collect::<Result<Vec<_>>>()?;
+
+        match bounds.len() {
+            0 => {inner_generic_uses(&generics, &field.ty, &mut found)?;},
+            1 => {found.insert(format!("bound: {}", bounds[0].1.value()), GenericType::Bound(bounds[0].1.clone()));},
+            _ => return Err(Error::new(bounds[1].0, "Can't have more than 1 bound!")),
+        }
+        
     }
 
-    let types = found.into_values().collect::<Vec<Type>>();
+    let types = found.into_values().collect::<Vec<GenericType>>();
     
     //eprintln!("{:?}", types.iter().map(|a| a.clone().into_token_stream().to_string()).collect::<Vec<String>>());
     Ok(types)
 }
 
-fn inner_generic_uses(generics: &HashSet<String>, ty: &Type, found: &mut HashMap<String, Type>) -> Result<()> {
+fn inner_generic_uses(generics: &HashSet<String>, ty: &Type, found: &mut HashMap<String, GenericType>) -> Result<()> {
     match &ty {
         Type::Path(path) => {
             for seg in &path.path.segments {
                 let ident = seg.ident.clone().into_token_stream().to_string();
                 
                 if ident == "PhantomData" || generics.contains(&ident) {
-                    found.insert(ty.clone().into_token_stream().to_string(), ty.clone());
+                    found.insert(ty.clone().into_token_stream().to_string(), GenericType::Unbound(ty.clone()));
                 } else {
                     match &seg.arguments {
                         PathArguments::None => continue,
@@ -251,11 +296,24 @@ fn derive_struct(name: &str, input: &DataStruct) -> Result<TokenStream> {
         
         if !field.attrs.is_empty() {
             //eprintln!("{}", field.attrs[0].meta.clone().into_token_stream());
-            let meta = if let Meta::NameValue(name) = &field.attrs[0].meta {
-                Ok(name)
-            } else {
-                Err(Error::new_spanned(field.attrs[0].meta.clone(), "Expected `debug = \"...\"`"))
-            }?;
+
+            let meta: Vec<&MetaNameValue> = field.attrs.iter().filter_map(|attr| {
+                match &attr.meta {
+                    Meta::Path(_) => Some(Err(Error::new_spanned(field.attrs[0].meta.clone(), "Expected `debug = \"...\" or debug(bound = \"<bound>\"`"))),
+                    Meta::List(_) => None,
+                    Meta::NameValue(name) => Some(Ok(name)),
+                }
+            }).collect::<Result<Vec<_>>>()?;
+            
+            if meta.is_empty() {
+                return Ok(quote! {
+                    .field(#field_str, &self.#field_name)
+                });
+            } else if meta.len() > 1 {
+                return Err(Error::new_spanned(meta[1].clone(), "Can only have exectly 1 debug field!"));
+            }
+
+            let meta = meta[0];
 
             let literal = if let Expr::Lit(lit) = &meta.value {
                 Ok(lit)

@@ -22,6 +22,15 @@ pub struct Wrapper<T: Trait> {
 }
 
 #[derive(CustomDebug)]
+pub struct Wrapper2<T: Trait, U> {
+    #[debug(bound = "T::Value: Debug")]
+    field: Field<T>,
+    #[debug = "0b{:08b}"]
+    bitmask: u8,
+    extra: U,
+}
+
+#[derive(CustomDebug)]
 struct Field<T: Trait> {
     values: Vec<T::Value>,
 }
@@ -36,6 +45,7 @@ fn main() {
     }
 
     assert_debug::<Wrapper<Id>>();
+    assert_debug::<Wrapper2<Id, u8>>();
 }
 
 
