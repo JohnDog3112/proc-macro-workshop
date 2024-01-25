@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Result, Error, Meta, Expr, spanned::Spanned, Lit, Type, PathArguments};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Result, Error, Meta, Expr, spanned::Spanned, Lit, Type, PathArguments, Generics, Fields, GenericArgument};
 
 
 #[proc_macro_derive(CustomDebug, attributes(debug))]
@@ -21,51 +21,23 @@ fn derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let name = &input.ident;
     let name_str = name.to_string();
 
-    let mut phantom_generics = HashSet::new();
 
-    let implementation = if let Data::Struct(val) = &input.data {
-        for field in &val.fields {
-            let path = if let Type::Path(path) = &field.ty {
-                path
-            } else {
-                continue;
-            };
-            
-            if path.path.segments.is_empty() {
-                continue;
-            }
-
-            let first_name = path.path.segments[0].ident.clone().into_token_stream().to_string();
-
-            if first_name != "PhantomData" {
-                continue;
-            }
-
-            let gens = if let PathArguments::AngleBracketed(angle) = &path.path.segments[0].arguments {
-                &angle.args
-            } else {
-                continue;
-            };
-
-            phantom_generics.insert(gens[0].clone().into_token_stream().to_string());
-
-        }
-        derive_struct(&name_str, val)?
+    let (implementation, bound_generics) = if let Data::Struct(val) = &input.data {
+        (
+            derive_struct(&name_str, val)?, 
+            get_uses_of_generics(&input.generics, &val.fields)?
+        )
     } else {
         unimplemented!()
     };
 
 
     let generics = &input.generics;
-    let params = &generics.params;
-    let where_block = if !params.is_empty() {
-        let bound_params: TokenStream = params.iter().map(|param| {
-            let gen_str = param.clone().into_token_stream().to_string();
 
-            if phantom_generics.contains(&gen_str) {
-                quote!(PhantomData<#param>: ::std::fmt::Debug,)
-            } else {
-                quote!(#param: ::std::fmt::Debug,) 
+    let where_block = if !bound_generics.is_empty() {
+        let bound_params: TokenStream = bound_generics.into_iter().map(|param| {
+            quote!{
+                #param: ::std::fmt::Debug,
             }
         }).collect();
         quote! {
@@ -76,8 +48,19 @@ fn derive_impl(input: DeriveInput) -> Result<TokenStream> {
         TokenStream::new()
     };
 
+    let oth_gen = generics.params.clone().into_iter().map(|a| {
+        match a {
+            syn::GenericParam::Lifetime(li) => quote!(#li,),
+            syn::GenericParam::Type(ty) => {
+                let ident = ty.ident;
+                quote!(#ident,)
+            },
+            syn::GenericParam::Const(co) => quote!(#co,),
+        }
+    }).collect::<TokenStream>();
+
     Ok(quote!{
-        impl #generics ::std::fmt::Debug for #name #generics 
+        impl #generics ::std::fmt::Debug for #name <#oth_gen>
         #where_block
         {
             fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -87,7 +70,83 @@ fn derive_impl(input: DeriveInput) -> Result<TokenStream> {
     })
 }
 
+fn get_uses_of_generics(generics: &Generics, fields: &Fields) -> Result<Vec<Type>> {
+    let mut found = HashMap::new();
+    let generics: HashSet<String> = HashSet::from_iter(generics.params
+        .clone()
+        .into_iter()
+        .filter_map(|a| {
+            match a {
+                syn::GenericParam::Lifetime(_) => None,
+                syn::GenericParam::Type(ty) => Some(Ok(ty.ident.into_token_stream().to_string())),
+                syn::GenericParam::Const(_) => Some(Err(Error::new_spanned(a, "Const's aren't supported!"))),
+            }
+        })
+        .collect::<Result<Vec<String>>>()?
+    );
 
+    //eprintln!("{:?}", generics);
+
+    for field in fields {
+        inner_generic_uses(&generics, &field.ty, &mut found)?;
+    }
+
+    let types = found.into_values().collect::<Vec<Type>>();
+    
+    //eprintln!("{:?}", types.iter().map(|a| a.clone().into_token_stream().to_string()).collect::<Vec<String>>());
+    Ok(types)
+}
+
+fn inner_generic_uses(generics: &HashSet<String>, ty: &Type, found: &mut HashMap<String, Type>) -> Result<()> {
+    match &ty {
+        Type::Path(path) => {
+            for seg in &path.path.segments {
+                let ident = seg.ident.clone().into_token_stream().to_string();
+                
+                if ident == "PhantomData" || generics.contains(&ident) {
+                    found.insert(ty.clone().into_token_stream().to_string(), ty.clone());
+                } else {
+                    match &seg.arguments {
+                        PathArguments::None => continue,
+                        PathArguments::AngleBracketed(angled) => {
+
+                            for gen in &angled.args {
+                                if let Some(ty) = unwrap_generic(gen)? {
+                                    inner_generic_uses(generics, ty, found)?;
+                                }
+                            }
+                        },
+                        PathArguments::Parenthesized(_) => {
+                            return Err(Error::new_spanned(ty.clone(), "Paranthesized generics not supported!"));
+                        },
+                    }
+                }
+                //eprintln!("{}", seg.ident.clone().into_token_stream());
+            }
+        },
+        Type::Tuple(tup) => {
+            for elm in &tup.elems {
+                inner_generic_uses(generics, elm, found)?;
+            }
+        },
+        _a => (),
+        //return Err(Error::new_spanned(ty.clone(), format!("{} isn't currently supported!",a.into_token_stream()))),
+    }
+
+    Ok(())
+}
+
+fn unwrap_generic(gen: &GenericArgument) -> Result<Option<&Type>> {
+    match gen {
+        syn::GenericArgument::Lifetime(_) => Ok(None),
+        syn::GenericArgument::Type(ty) => Ok(Some(ty)),
+        syn::GenericArgument::Const(_)
+        | syn::GenericArgument::AssocType(_)
+        | syn::GenericArgument::AssocConst(_)
+        | syn::GenericArgument::Constraint(_) => Err(Error::new_spanned(gen.clone(), "This type isn't supported!")),
+        _ => Ok(None),
+    }
+}
 fn derive_struct(name: &str, input: &DataStruct) -> Result<TokenStream> {
     let args: TokenStream = input.fields.iter().map(|field| {
         let field_name = field.ident.clone().unwrap();
@@ -130,3 +189,5 @@ fn derive_struct(name: &str, input: &DataStruct) -> Result<TokenStream> {
             .finish()
     })
 }
+
+
