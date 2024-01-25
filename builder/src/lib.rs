@@ -52,9 +52,7 @@ mod a {
                         if tokens.is_empty() {
                             panic!("No arguments were provided!")
                         } else if tokens[0].to_string() != "each" {
-                            //list.span()
                             return Err(Error::new_spanned(list, "expected `builder(each = \"...\")`"));
-                            //unimplemented!("only each is implemented!");
                         } else if tokens.len() < 3 {
                             panic!("Too few arguments for each! each = \"<name>\"");
                         } else if tokens.len() > 3 {
