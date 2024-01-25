@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use proc_macro2::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Result, Error, Meta, Expr, spanned::Spanned, Lit};
+use quote::{quote, ToTokens};
+use syn::{parse_macro_input, DeriveInput, Data, DataStruct, Result, Error, Meta, Expr, spanned::Spanned, Lit, Type, PathArguments};
 
 
 #[proc_macro_derive(CustomDebug, attributes(debug))]
@@ -19,17 +21,52 @@ fn derive_impl(input: DeriveInput) -> Result<TokenStream> {
     let name = &input.ident;
     let name_str = name.to_string();
 
+    let mut phantom_generics = HashSet::new();
+
     let implementation = if let Data::Struct(val) = &input.data {
+        for field in &val.fields {
+            let path = if let Type::Path(path) = &field.ty {
+                path
+            } else {
+                continue;
+            };
+            
+            if path.path.segments.is_empty() {
+                continue;
+            }
+
+            let first_name = path.path.segments[0].ident.clone().into_token_stream().to_string();
+
+            if first_name != "PhantomData" {
+                continue;
+            }
+
+            let gens = if let PathArguments::AngleBracketed(angle) = &path.path.segments[0].arguments {
+                &angle.args
+            } else {
+                continue;
+            };
+
+            phantom_generics.insert(gens[0].clone().into_token_stream().to_string());
+
+        }
         derive_struct(&name_str, val)?
     } else {
         unimplemented!()
     };
 
+
     let generics = &input.generics;
     let params = &generics.params;
     let where_block = if !params.is_empty() {
         let bound_params: TokenStream = params.iter().map(|param| {
-           quote!(#param: ::std::fmt::Debug,) 
+            let gen_str = param.clone().into_token_stream().to_string();
+
+            if phantom_generics.contains(&gen_str) {
+                quote!(PhantomData<#param>: ::std::fmt::Debug,)
+            } else {
+                quote!(#param: ::std::fmt::Debug,) 
+            }
         }).collect();
         quote! {
             where
