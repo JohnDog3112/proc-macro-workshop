@@ -25,9 +25,24 @@ fn derive_impl(input: DeriveInput) -> Result<TokenStream> {
         unimplemented!()
     };
 
+    let generics = &input.generics;
+    let params = &generics.params;
+    let where_block = if !params.is_empty() {
+        let bound_params: TokenStream = params.iter().map(|param| {
+           quote!(#param: ::std::fmt::Debug,) 
+        }).collect();
+        quote! {
+            where
+                #bound_params
+        }
+    } else {
+        TokenStream::new()
+    };
 
     Ok(quote!{
-        impl ::std::fmt::Debug for #name {
+        impl #generics ::std::fmt::Debug for #name #generics 
+        #where_block
+        {
             fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 #implementation
             }
