@@ -18,6 +18,7 @@
 
 use seq::seq;
 
+#[allow(unused_macros)]
 macro_rules! expand_to_nothing {
     ($arg:literal) => {
         // nothing
