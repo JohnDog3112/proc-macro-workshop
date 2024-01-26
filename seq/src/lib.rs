@@ -7,6 +7,7 @@ struct Seq {
     var: syn::Ident,
     lower: syn::LitInt,
     upper: syn::LitInt,
+    inclusive: bool,
     block: Group
 }
 impl Parse for Seq {
@@ -15,7 +16,16 @@ impl Parse for Seq {
         input.parse::<Token![in]>()?;
         let lower: syn::LitInt = input.parse()?;
         input.parse::<Token![..]>()?;
+
+        let inclusive = if input.peek(Token![=]) {
+            input.parse::<Token![=]>()?;
+            true
+        } else {
+            false
+        };
+
         let upper: syn::LitInt = input.parse()?;
+
 
         let block = input.parse()?;
 
@@ -23,6 +33,7 @@ impl Parse for Seq {
             var,
             lower,
             upper,
+            inclusive,
             block
         })
     }
@@ -43,13 +54,14 @@ fn seq_impl(input: Seq) -> Result<TokenStream> {
         var,
         lower,
         upper,
-        block
+        inclusive,
+        block,
     } = input;
 
 
     
     let lower = lower.base10_parse::<i128>()?;
-    let upper = upper.base10_parse::<i128>()?;
+    let upper = upper.base10_parse::<i128>()? + if inclusive {1} else {0};
 
 
     let (out_stream, groups_found) = find_replace_groups(lower, upper, &var, block.stream());
