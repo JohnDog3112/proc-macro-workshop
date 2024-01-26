@@ -48,19 +48,116 @@ fn seq_impl(input: Seq) -> Result<TokenStream> {
 
 
     
-    Ok((lower.base10_parse::<i128>()?..upper.base10_parse::<i128>()?).map(|i| {
+    let lower = lower.base10_parse::<i128>()?;
+    let upper = upper.base10_parse::<i128>()?;
 
-        /*block.stream().clone().into_iter().map(|token| {
-            replace_tokens(&var, token, i)
-        }).collect::<TokenStream>()*/
 
-        replace_tokens(&var, block.stream(), i)
+    let (out_stream, groups_found) = find_replace_groups(lower, upper, &var, block.stream());
 
-    }).collect::<TokenStream>())
+    if groups_found > 0 {
+        Ok(out_stream)
+    } else {
+        Ok((lower..upper).map(|i| {
+
+            /*block.stream().clone().into_iter().map(|token| {
+                replace_tokens(&var, token, i)
+            }).collect::<TokenStream>()*/
+    
+            replace_tokens(&var, block.stream(), i)
+    
+        }).collect::<TokenStream>())
+    }
 
     //Ok(TokenStream::new())
 }
 
+fn find_replace_groups(lower: i128, upper: i128, var: &Ident, tokens: TokenStream) -> (TokenStream, usize) {
+    //eprintln!("{}", tokens);
+    let mut tokens: Vec<TokenTree> = tokens.into_iter().collect();
+
+    let mut groups_found = 0;
+
+    let mut index = 0;
+
+     
+
+    while index < tokens.len() {
+        //eprintln!("iter: {}", tokens[index]);
+
+        //check for # in #(<repeat>)*
+        index += 1;
+        match &tokens[index-1] {
+            TokenTree::Punct(punct) => {
+                if punct.as_char() != '#' {
+                    continue;
+                }
+            },
+            TokenTree::Group(group) => {
+                let (stream, found) = find_replace_groups(lower, upper, var, group.stream());
+                groups_found += found;
+
+                let mut new_group = TokenTree::Group(
+                    Group::new(
+                        group.delimiter(),
+                        stream
+                    )
+                );
+                new_group.set_span(group.span());
+
+                tokens[index-1] = new_group;
+                continue;
+
+            },
+            _ => continue,
+        }
+
+        //checks that there's enough left in token stream for a repeat section
+        if index+1 >= tokens.len() {
+            continue;
+        }
+
+        //checks for * in #(<repeat>)*
+        if let TokenTree::Punct(punct) = &tokens[index+1] {
+            if punct.as_char() != '*' {
+                continue;
+            }
+        } else {
+            continue;
+        }
+
+        //checking inner group <repeat> in #(<repeat>)*
+        if let TokenTree::Group(group) = &tokens[index] {
+            //ensuring that the group is in parenthesis
+            match group.delimiter() {
+                proc_macro2::Delimiter::Parenthesis => (),
+                _ => continue
+            }
+
+            let new_tokens = (lower..upper).map(|i| {
+                replace_tokens(var, group.stream(), i)
+            }).collect::<TokenStream>();
+
+            let bef_len = tokens.len();
+
+            let tmp = tokens.into_iter();
+            
+            tokens = Vec::from_iter(
+                tmp.clone().take(index-1)
+                    .chain(new_tokens)
+                    .chain(tmp.skip(index+2))
+            );
+
+            index += tokens.len()-bef_len+2;
+
+            groups_found += 1;
+        } else {
+            continue;
+        }
+        
+    }
+
+    (tokens.into_iter().collect(), groups_found)
+}
 fn replace_tokens(var: &Ident, tokens: TokenStream, index: i128) -> TokenStream {
 
     enum CheckState {
