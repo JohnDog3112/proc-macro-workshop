@@ -37,8 +37,19 @@ fn f0() -> u64 {
     100
 }
 
+//Extra test case for suffix
+seq!(N in 0..4 {
+    fn f~N~_alternate () -> u64 {
+        N * 2
+    }
+});
+
 fn main() {
     let sum = f0() + f1() + f2() + f3();
 
     assert_eq!(sum, 100 + 2 + 4 + 6);
+
+    let sum = f0_alternate() + f1_alternate() + f2_alternate() + f3_alternate();
+
+    assert_eq!(sum, 0 + 2 + 4 + 6);
 }

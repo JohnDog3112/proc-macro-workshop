@@ -8,8 +8,34 @@
 
 use seq::seq;
 
-seq!(N in 0..4 {
-    compile_error!(concat!("error number ", stringify!(0)));
+seq!(N in 1..4 {
+    fn f~N () -> u64 {
+        N * 2
+    }
 });
 
-fn main() {}
+// This f0 is written separately to detect whether your macro correctly starts
+// with the first iteration at N=1 as specified in the invocation. If the macro
+// incorrectly started at N=0 like in the previous tests cases, the first
+// generated function would conflict with this one and the program would not
+// compile.
+fn f0() -> u64 {
+    100
+}
+
+//Extra test case for suffix
+seq!(N in 0..4 {
+    fn f~N~_alternate () -> u64 {
+        N * 2
+    }
+});
+
+fn main() {
+    let sum = f0() + f1() + f2() + f3();
+
+    assert_eq!(sum, 100 + 2 + 4 + 6);
+
+    let sum = f0_alternate() + f1_alternate() + f2_alternate() + f3_alternate();
+
+    assert_eq!(sum, 0 + 2 + 4 + 6);
+}
