@@ -110,33 +110,40 @@ impl VisitMut for MatchCheck {
             }
 
 
-            let idents = mat.arms.iter().map(|arm| {
+            let idents: std::result::Result<Vec<_>, Error> = mat.arms.iter().map(|arm| {
 
                 match &arm.pat {
                     syn::Pat::TupleStruct(tuple_struct) => {
                         //eprintln!("{:?}", );
-                        (
+                        Ok((
                             &tuple_struct.path.segments.last().unwrap().ident, 
                             &tuple_struct.path as &dyn ToTokens
-                        )
+                        ))
                     },
                     syn::Pat::Ident(ident) => {
-                        (&ident.ident, &ident.ident as &dyn ToTokens)
+                        Ok((&ident.ident, &ident.ident as &dyn ToTokens))
                     },
                     syn::Pat::Struct(struc) => {
-                        (
+                        Ok((
                             &struc.path.segments.last().unwrap().ident, 
                             &struc.path as &dyn ToTokens
-                        )
+                        ))
                     },
-                    _ => todo!(),
+                    _ => Err(Error::new_spanned(arm.pat.clone(), "unsupported by #[sorted]")),
                 }
             }).collect();
-            if let Err(a) = find_out_of_order(idents) {
-                Some(Err(a))
-            } else {
-                None
+
+            match idents {
+                Ok(idents) => {
+                    if let Err(a) = find_out_of_order(idents) {
+                        Some(Err(a))
+                    } else {
+                        None
+                    }
+                },
+                Err(a) => Some(Err(a)),
             }
+            
         }).collect();
 
 
