@@ -6,17 +6,35 @@
 // To run the code:
 //     $ cargo run
 
+use seq::seq;
 
+seq!(N in 1..4 {
+    fn f~N () -> u64 {
+        N * 2
+    }
+    fn f~N~_alternate () -> u64 {
+        N * 2
+    }
+});
 
-use sorted::sorted;
-
-#[sorted]
-pub enum Error {
-    ThatFailed,
-    ThisFailed,
-    SomethingFailed,
-    WhoKnowsWhatFailed,
+// This f0 is written separately to detect whether your macro correctly starts
+// with the first iteration at N=1 as specified in the invocation. If the macro
+// incorrectly started at N=0 like in the previous tests cases, the first
+// generated function would conflict with this one and the program would not
+// compile.
+fn f0() -> u64 {
+    100
 }
 
-fn main() {}
+//Extra test case for suffix
+
+fn main() {
+    let sum = f0() + f1() + f2() + f3();
+
+    assert_eq!(sum, 100 + 2 + 4 + 6);
+
+    let sum = f1_alternate() + f2_alternate() + f3_alternate();
+
+    assert_eq!(sum, 2 + 4 + 6);
+}
 

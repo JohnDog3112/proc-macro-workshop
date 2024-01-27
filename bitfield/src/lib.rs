@@ -13,3 +13,21 @@
 pub use bitfield_impl::bitfield;
 
 // TODO other things
+
+/*type BitsType = i64;
+
+trait Specifier {
+    const BITS: BitsType;
+}
+
+use seq::seq;
+
+seq!(N in 1..=64 {
+    #(
+        enum B~N {}
+
+        impl Specifier for B~N {
+            const BITS: BitsType = B~N; 
+        }
+    )*
+});*/

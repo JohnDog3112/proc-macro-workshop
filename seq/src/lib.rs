@@ -172,6 +172,7 @@ fn find_replace_groups(lower: i128, upper: i128, var: &Ident, tokens: TokenStrea
 }
 fn replace_tokens(var: &Ident, tokens: TokenStream, index: i128) -> TokenStream {
 
+    #[derive(Debug)]
     enum CheckState {
         Nothing,
         Var,
@@ -181,8 +182,12 @@ fn replace_tokens(var: &Ident, tokens: TokenStream, index: i128) -> TokenStream 
     let mut parsed_tokens: Vec<TokenTree> = vec![];
 
     let mut check_state = CheckState::Nothing;
-
     for token in tokens {
+        //eprintln!("{:?}: {}", check_state, token);
+
+        let mut was_tilda = false;
+        let mut was_var = false;
+
 
         if let CheckState::Tilda = check_state {
             check_state = CheckState::Nothing;
@@ -215,6 +220,7 @@ fn replace_tokens(var: &Ident, tokens: TokenStream, index: i128) -> TokenStream 
                 //eprintln!("Ident: {}", ident);
                 let val = if &ident == var {
                     check_state = CheckState::Var;
+                    was_var = true;
 
                     let literal = TokenTree::Literal(Literal::i128_unsuffixed(index));
 
@@ -245,6 +251,7 @@ fn replace_tokens(var: &Ident, tokens: TokenStream, index: i128) -> TokenStream 
             TokenTree::Punct(punct) => {
                 if punct.as_char() == '~' {
                     if let CheckState::Var = check_state {
+                        was_tilda = true;
                         check_state = CheckState::Tilda;
                     } else {
                         parsed_tokens.push(TokenTree::Punct(punct));
@@ -254,6 +261,12 @@ fn replace_tokens(var: &Ident, tokens: TokenStream, index: i128) -> TokenStream 
                 }
             }
             _ => parsed_tokens.push(token)
+        }
+
+        if !was_tilda && !was_var {
+            if let CheckState::Var = check_state {
+                check_state = CheckState::Nothing;
+            }
         }
 
     }
