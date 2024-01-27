@@ -1,7 +1,7 @@
 use proc_macro2::{TokenStream, Span};
 
 use quote::ToTokens;
-use syn::{Result, Error, parse_macro_input, Item, Ident, ItemFn, visit_mut::{VisitMut, self}, Attribute};
+use syn::{Result, Error, parse_macro_input, Item, Ident, ItemFn, visit_mut::{VisitMut, self}, Attribute, spanned::Spanned};
 
 type ProcStream = proc_macro::TokenStream;
 
@@ -91,7 +91,7 @@ impl VisitMut for MatchCheck {
         std::mem::swap(&mut tmp, &mut mat.attrs);
 
         let tmp: std::result::Result<Vec<Attribute>, Error> = tmp.into_iter().filter_map(|attr| {
-            eprintln!("{}", attr.meta.to_token_stream());
+            //eprintln!("{}", attr.meta.to_token_stream());
 
             let path = if let syn::Meta::Path(path) = &attr.meta {
                 path
@@ -110,28 +110,45 @@ impl VisitMut for MatchCheck {
             }
 
 
-            let idents: std::result::Result<Vec<_>, Error> = mat.arms.iter().map(|arm| {
+            enum UnderscoreStatus {
+                NotThere,
+                There(Span),
+                WrongPlace(Span),
+            }
 
+            let mut underscore_status = UnderscoreStatus::NotThere;
+            let idents: std::result::Result<Vec<_>, Error> = mat.arms.iter().filter_map(|arm| {
+                if let UnderscoreStatus::There(span) = underscore_status {
+                    underscore_status = UnderscoreStatus::WrongPlace(span);
+                }
                 match &arm.pat {
                     syn::Pat::TupleStruct(tuple_struct) => {
                         //eprintln!("{:?}", );
-                        Ok((
+                        Some(Ok((
                             &tuple_struct.path.segments.last().unwrap().ident, 
                             &tuple_struct.path as &dyn ToTokens
-                        ))
+                        )))
                     },
                     syn::Pat::Ident(ident) => {
-                        Ok((&ident.ident, &ident.ident as &dyn ToTokens))
+                        Some(Ok((&ident.ident, &ident.ident as &dyn ToTokens)))
                     },
                     syn::Pat::Struct(struc) => {
-                        Ok((
+                        Some(Ok((
                             &struc.path.segments.last().unwrap().ident, 
                             &struc.path as &dyn ToTokens
-                        ))
+                        )))
                     },
-                    _ => Err(Error::new_spanned(arm.pat.clone(), "unsupported by #[sorted]")),
+                    syn::Pat::Wild(wild) => {
+                        underscore_status = UnderscoreStatus::There(wild.span());
+                        None
+                    },
+                    _ => Some(Err(Error::new_spanned(arm.pat.clone(), "unsupported by #[sorted]"))),
                 }
             }).collect();
+
+            if let UnderscoreStatus::WrongPlace(span) = underscore_status {
+                return Some(Err(Error::new(span, "_ should go last")));
+            }
 
             match idents {
                 Ok(idents) => {
