@@ -29,11 +29,12 @@ fn sorted_impl(_args: ProcStream, input: syn::Item) -> Result<TokenStream> {
         return Err(Error::new(Span::call_site(), "expected enum or match expression"))
     };
 
-    let idents: Vec<&Ident> = inner
+    let idents: Vec<(&Ident, &dyn ToTokens)> = inner
         .variants
         .iter()
-        .map(|a| &a.ident)
+        .map(|a| (&a.ident, &a.ident as &dyn ToTokens))
         .collect();
+
 
     find_out_of_order(idents)?;
 
@@ -42,16 +43,36 @@ fn sorted_impl(_args: ProcStream, input: syn::Item) -> Result<TokenStream> {
     Ok(TokenStream::new())
 }
 
-fn find_out_of_order(idents: Vec<&Ident>) -> Result<()> {
+fn find_out_of_order(idents: Vec<(&Ident, &dyn ToTokens)>) -> Result<()> {
+
+
+    
     for i in 1..idents.len() {
 
-        if idents[i] < idents[i-1] {
+        if idents[i].0 < idents[i-1].0 {
             for j in 0..i {
-                if idents[i] < idents[j] {
-                    return Err(Error::new(
-                        idents[i].span(), 
-                        format!("{} should sort before {}", idents[i], idents[j])
+                if idents[i].0 < idents[j].0 {
+                    let i_a: String = idents[i].1
+                        .to_token_stream()
+                        .to_string()
+                        .chars()
+                        .filter(|a| *a != ' ')
+                        .collect();
+                    let i_b: String = idents[j].1
+                        .to_token_stream()
+                        .to_string()
+                        .chars()
+                        .filter(|a| *a != ' ')
+                        .collect();
+                    
+                    return Err(Error::new_spanned(
+                        idents[i].1.to_token_stream(),
+                        format!("{} should sort before {}", i_a, i_b)
                     ));
+                    /*return Err(Error::new(
+                        idents[i].1, 
+                        format!("{} should sort before {}", idents[i].0, idents[j].0)
+                    ));*/
                 }
             }
         }
@@ -88,20 +109,27 @@ impl VisitMut for MatchCheck {
                 return Some(Ok(attr));
             }
 
-            let idents = mat.arms.iter().filter_map(|arm| {
+
+            let idents = mat.arms.iter().map(|arm| {
 
                 match &arm.pat {
                     syn::Pat::TupleStruct(tuple_struct) => {
-                        eprintln!("{:?}", tuple_struct);
-                        Some(tuple_struct.path.get_ident().unwrap())
+                        //eprintln!("{:?}", );
+                        (
+                            &tuple_struct.path.segments.last().unwrap().ident, 
+                            &tuple_struct.path as &dyn ToTokens
+                        )
                     },
                     syn::Pat::Ident(ident) => {
-                        Some(&ident.ident)
+                        (&ident.ident, &ident.ident as &dyn ToTokens)
                     },
                     syn::Pat::Struct(struc) => {
-                        Some(struc.path.get_ident().unwrap())
+                        (
+                            &struc.path.segments.last().unwrap().ident, 
+                            &struc.path as &dyn ToTokens
+                        )
                     },
-                    _ => None,
+                    _ => todo!(),
                 }
             }).collect();
             if let Err(a) = find_out_of_order(idents) {
