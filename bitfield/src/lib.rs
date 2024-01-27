@@ -24,7 +24,7 @@ seq!(N in 1..=64 {
     }
 });
 
-type BitsType = i64;
+type BitsType = usize;
 
 pub trait Specifier {
     const BITS: BitsType;
