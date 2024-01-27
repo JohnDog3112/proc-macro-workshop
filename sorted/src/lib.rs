@@ -1,6 +1,6 @@
 use proc_macro2::{TokenStream, Span};
 use quote::ToTokens;
-use syn::{Result, Error, parse_macro_input, Item};
+use syn::{Result, Error, parse_macro_input, Item, Ident};
 
 type ProcStream = proc_macro::TokenStream;
 
@@ -23,6 +23,28 @@ fn sorted_impl(_args: ProcStream, input: syn::Item) -> Result<TokenStream> {
     } else {
         return Err(Error::new(Span::call_site(), "expected enum or match expression"))
     };
+
+    let idents: Vec<&Ident> = inner
+        .variants
+        .iter()
+        .map(|a| &a.ident)
+        .collect();
+
+    for i in 1..idents.len() {
+
+        if idents[i] < idents[i-1] {
+            for j in 0..i {
+                if idents[i] < idents[j] {
+                    return Err(Error::new(
+                        idents[i].span(), 
+                        format!("{} should sort before {}", idents[i], idents[j])
+                    ));
+                }
+            }
+        }
+    }
+
+    //eprintln!("{:?}", inner.variants);
 
     Ok(inner.into_token_stream())
 }
