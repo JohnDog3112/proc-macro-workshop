@@ -1,19 +1,24 @@
 use proc_macro2::{TokenStream, Span};
-use quote::ToTokens;
+
 use syn::{Result, Error, parse_macro_input, Item, Ident};
 
 type ProcStream = proc_macro::TokenStream;
 
 #[proc_macro_attribute]
-pub fn sorted(args: ProcStream, input: ProcStream) -> ProcStream {
+pub fn sorted(args: ProcStream, mut input: ProcStream) -> ProcStream {
     let _ = args;
-    let inp = input;
+    let inp = input.clone();
 
     let item = parse_macro_input!(inp as syn::Item);
 
-    sorted_impl(args, item)
+    
+    let checks: ProcStream = sorted_impl(args, item)
         .unwrap_or_else(Error::into_compile_error)
-        .into()
+        .into();
+
+    input.extend(checks);
+
+    input
 }
 
 
@@ -46,5 +51,5 @@ fn sorted_impl(_args: ProcStream, input: syn::Item) -> Result<TokenStream> {
 
     //eprintln!("{:?}", inner.variants);
 
-    Ok(inner.into_token_stream())
+    Ok(TokenStream::new())
 }
