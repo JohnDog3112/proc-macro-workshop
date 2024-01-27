@@ -1,6 +1,6 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, Span};
 use quote::ToTokens;
-use syn::{Result, Error, parse_macro_input};
+use syn::{Result, Error, parse_macro_input, Item};
 
 type ProcStream = proc_macro::TokenStream;
 
@@ -17,8 +17,12 @@ pub fn sorted(args: ProcStream, input: ProcStream) -> ProcStream {
 }
 
 
-fn sorted_impl(args: ProcStream, input: syn::Item) -> Result<TokenStream> {
-    eprintln!("{:?}", input);
+fn sorted_impl(_args: ProcStream, input: syn::Item) -> Result<TokenStream> {
+    let inner = if let Item::Enum(en) = input {
+        en
+    } else {
+        return Err(Error::new(Span::call_site(), "expected enum or match expression"))
+    };
 
-    Ok(input.into_token_stream())
+    Ok(inner.into_token_stream())
 }
