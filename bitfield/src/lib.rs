@@ -16,25 +16,53 @@ pub use bitfield_impl::bitfield;
 
 use seq::seq;
 
-seq!(N in 1..=64 {
+seq!(N in 1..=8 {
     pub enum B~N {}
 
     impl Specifier for B~N {
-        const BITS: BitsType = N; 
+        const BITS: BitsType = N;
+        type Ty = u8;
     }
 });
+
+seq!(N in 9..=16 {
+    pub enum B~N {}
+
+    impl Specifier for B~N {
+        const BITS: BitsType = N;
+        type Ty = u16;
+    }
+});
+
+seq!(N in 17..=32 {
+    pub enum B~N {}
+
+    impl Specifier for B~N {
+        const BITS: BitsType = N;
+        type Ty = u32;
+    }
+});
+
+seq!(N in 33..=64 {
+    pub enum B~N {}
+
+    impl Specifier for B~N {
+        const BITS: BitsType = N;
+        type Ty = u64;
+    }
+});
+
 
 type BitsType = usize;
 
 pub trait Specifier {
     const BITS: BitsType;
+    type Ty;
 }
 
 
 
 pub mod checks {
-    
-    
 
     pub fn check_mod<T: CheckMod8>() -> u32 
     where 

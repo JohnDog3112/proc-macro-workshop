@@ -37,7 +37,7 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
     let size: TokenStream = struc.fields.iter().map(|field| {
         let ty = &field.ty;
         quote!(
-            + #ty::BITS
+            + <#ty as ::bitfield::Specifier>::BITS
         )
     }).collect();
 
@@ -52,13 +52,13 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
             const start_bytes: usize = prev_bits/8;
             const start_bits: usize = prev_bits%8;
 
-            const last_bits: usize = (prev_bits + #ty::BITS);
+            const last_bits: usize = (prev_bits + <#ty as ::bitfield::Specifier>::BITS);
             
             const end_bytes: usize = last_bits/8;
             const end_bits: usize = last_bits%8;
         );
 
-        prev.extend(quote!(+ #ty::BITS));
+        prev.extend(quote!(+ <#ty as ::bitfield::Specifier>::BITS));
 
         let getter = Ident::new(
             &format!("get_{field_ident}"), field_ident.span()
@@ -68,35 +68,36 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
             &format!("set_{field_ident}"), field_ident.span()
         );
 
+
         quote!(
-            #vis fn #getter(&self) -> u64 {
+            #vis fn #getter(&self) -> <#ty as ::bitfield::Specifier>::Ty {
                 #setup
 
                 if start_bytes == end_bytes {
                     const start_mask: u8 = (0b1111_1111u8.overflowing_shr(start_bits as u32)).0;
                     const end_mask: u8 = (0b1111_1111u8.overflowing_shl((8-end_bits) as u32)).0;
 
-                    return ((self.data[start_bytes] & start_mask & end_mask) >> (8 - end_bits)) as u64;
+                    return ((self.data[start_bytes] & start_mask & end_mask) >> (8 - end_bits)).try_into().unwrap();
                 }
 
                 const mask: u8 = (0b1111_1111 >> start_bits);
-                let mut total: u64 = (self.data[start_bytes] & mask) as u64;
+                let mut total: <#ty as ::bitfield::Specifier>::Ty = (self.data[start_bytes] & mask).try_into().unwrap();
 
 
                 #[allow(clippy::reversed_empty_ranges)]
                 for byte in start_bytes+1..end_bytes {
-                    total = total.overflowing_shl(8 as u32).0 + self.data[byte] as u64;
+                    total = total.overflowing_shl(8 as u32).0 + self.data[byte] as <#ty as ::bitfield::Specifier>::Ty;
                 }
 
                 if start_bytes != end_bytes && end_bits != 0{
-                    (total << end_bits) + self.data[end_bytes].overflowing_shr((8 - end_bits) as u32).0 as u64
+                    (total << end_bits) + self.data[end_bytes].overflowing_shr((8 - end_bits) as u32).0 as <#ty as ::bitfield::Specifier>::Ty
                     
                 } else {
                     total
                 }
             }
 
-            #vis fn #setter(&mut self, mut val: u64) {
+            #vis fn #setter(&mut self, mut val: <#ty as ::bitfield::Specifier>::Ty) {
                 #setup
 
 
@@ -161,11 +162,8 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
             }
 
             impl ::bitfield::Specifier for #ident {
-                const BITS: usize = if (0 #size)%8 == 0 {
-                    0 #size
-                } else {
-                    panic!("invalid!")
-                };
+                const BITS: usize = (0 #size);
+                type Ty = Self;
             }
         )
     )

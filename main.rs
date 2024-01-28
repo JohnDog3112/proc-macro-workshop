@@ -13,9 +13,7 @@ pub struct MyFourBytes {
     a: B1,
     b: B3,
     c: B4,
-    p1: B3,
     d: B24,
-    p2: B6,
 }
 
 /*pub struct MyFourBytes {
