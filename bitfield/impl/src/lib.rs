@@ -149,11 +149,23 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
 
             impl #ident {
                 fn new() -> Self {
+                    let _ = bitfield::checks::check_mod::<[
+                        ();
+                        (0 #size) % 8
+                    ]>();
                     Self {
                         data: [0; (0 #size)/8]
                     }
                 }
                 #getters_setters
+            }
+
+            impl ::bitfield::Specifier for #ident {
+                const BITS: usize = if (0 #size)%8 == 0 {
+                    0 #size
+                } else {
+                    panic!("invalid!")
+                };
             }
         )
     )

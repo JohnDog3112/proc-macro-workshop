@@ -15,7 +15,7 @@ pub struct MyFourBytes {
     c: B4,
     p1: B3,
     d: B24,
-    p2: B5,
+    p2: B6,
 }
 
 /*pub struct MyFourBytes {
@@ -26,10 +26,10 @@ pub struct MyFourBytes {
 
 fn main() {
     let mut bitfield = MyFourBytes::new();
-    assert_eq!(0, bitfield.get_a());
-    assert_eq!(0, bitfield.get_b());
-    assert_eq!(0, bitfield.get_c());
-    assert_eq!(0, bitfield.get_d());
+    //assert_eq!(0, bitfield.get_a());
+    //assert_eq!(0, bitfield.get_b());
+    //assert_eq!(0, bitfield.get_c());
+    //assert_eq!(0, bitfield.get_d());
 
     bitfield.set_d(0b1001_1011__1101_0111__1110_1101);
 

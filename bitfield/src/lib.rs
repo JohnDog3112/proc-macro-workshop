@@ -29,3 +29,66 @@ type BitsType = usize;
 pub trait Specifier {
     const BITS: BitsType;
 }
+
+
+
+pub mod checks {
+    
+    
+
+    pub fn check_mod<T: CheckMod8>() -> u32 
+    where 
+        T::Num: MultipleOf8,
+    {
+        check_mod_8::<T::Num>();
+        0
+    }
+
+    fn check_mod_8<T: MultipleOf8>() {
+        
+    }
+
+    pub trait MultipleOf8 {}
+    pub trait CheckMod8 {
+        type Num;
+    }
+
+
+
+    pub struct ZeroMod8 {}
+    impl CheckMod8 for [(); 0] {
+        type Num = ZeroMod8;
+    }
+    impl MultipleOf8 for ZeroMod8 {}
+
+    pub struct OneMod8 {}
+    impl CheckMod8 for [(); 1] {
+        type Num = OneMod8;
+    }
+    pub struct TwoMod8 {}
+    impl CheckMod8 for [(); 2] {
+        type Num = TwoMod8;
+    }
+    pub struct ThreeMod8 {}
+    impl CheckMod8 for [(); 3] {
+        type Num = ThreeMod8;
+    }
+    pub struct FourMod8 {}
+    impl CheckMod8 for [(); 4] {
+        type Num = FourMod8;
+    }
+    pub struct FiveMod8 {}
+    impl CheckMod8 for [(); 5] {
+        type Num = FiveMod8;
+    }
+    pub struct SixMod8 {}
+    impl CheckMod8 for [(); 6] {
+        type Num = SixMod8;
+    }
+    pub struct SevenMod8 {}
+    impl CheckMod8 for [(); 7] {
+        type Num = SevenMod8;
+    }
+
+
+}
