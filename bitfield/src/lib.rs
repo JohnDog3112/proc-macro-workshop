@@ -212,6 +212,35 @@ pub struct ByteArray<const N: usize>(pub [u8; N]);
 
 pub mod checks {
 
+
+    pub trait BoolCheck {
+        type Ty;
+    }
+    impl BoolCheck for [(); 1] {
+        type Ty = True;
+    }
+
+    impl BoolCheck for [(); 0] {
+        type Ty = False;
+    }
+
+    pub struct True;
+    pub struct False;
+    
+    pub trait DiscriminantInRange {}
+
+    impl DiscriminantInRange for True {}
+
+    pub fn check_in_range<T: BoolCheck>() 
+    where
+        T::Ty: DiscriminantInRange
+    {
+
+    }
+
+    
+
+
     pub fn check_mod<T: CheckMod8>() -> u32 
     where 
         T::Num: MultipleOf8,

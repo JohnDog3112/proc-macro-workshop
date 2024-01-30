@@ -55,9 +55,9 @@ fn bitfield_specifier_enum(inp: &DeriveInput, enu: &DataEnum) -> Result<TokenStr
         Ok(&variant.ident)
     }).collect::<std::result::Result<Vec<_>, Error>>()?;
 
-    let mag = variants.len().ilog2();
+    let mag = variants.len().ilog2() as usize;
 
-    if 2u32.pow(mag) != variants.len() as u32 {
+    if 2usize.pow(mag as u32) != variants.len() {
         return Err(Error::new(Span::call_site(),"BitfieldSpecifier expected a number of variants which is a power of 2"));
     }
 
@@ -73,10 +73,19 @@ fn bitfield_specifier_enum(inp: &DeriveInput, enu: &DataEnum) -> Result<TokenStr
         }
     }).collect();
 
+    //eprintln!("magnitude: {}", mag);
     Ok(quote!{
         impl ::bitfield::Specifier for #ident {
-            const BITS: usize = ((#bit_size)).ilog2() as usize + 1;
+            const BITS: usize = #mag;
             type Ty = #ident;
+        }
+
+        impl #ident {
+            pub fn new() {
+                let _ = ::bitfield::checks::check_in_range::<[(); if #bit_size as usize == 2usize.pow(Self::BITS as u32)-1 {1} else {0}]>();
+
+                //Self::from(0u64)
+            }
         }
 
         impl TryFrom<u64> for #ident {
@@ -101,7 +110,7 @@ fn bitfield_specifier_enum(inp: &DeriveInput, enu: &DataEnum) -> Result<TokenStr
             }
         }
 
-        impl From<#ident> for ByteArray<{(((#bit_size)).ilog2() as usize + 1+7)/8}> {
+        impl From<#ident> for ByteArray<{(#mag +1+7)/8usize}> {
             fn from(val: #ident) -> Self {
                 u64::from(val).into()
             }
