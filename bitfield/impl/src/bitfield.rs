@@ -232,6 +232,7 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
                 const B_MASK: u8 = 0b1111_1111u8.overflowing_shl((8 - END_BITS) as u32).0;
 
                 const INV_B_MASK: u8 = B_MASK ^ 0b1111_1111u8;
+                
 
                 
                 #[allow(clippy::reversed_empty_ranges)]
