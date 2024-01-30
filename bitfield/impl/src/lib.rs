@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{TokenStream, Span};
 use quote::quote;
 use syn::{parse_macro_input, Item, Result, Error, DeriveInput, DataEnum};
 
@@ -54,6 +54,12 @@ fn bitfield_specifier_enum(inp: &DeriveInput, enu: &DataEnum) -> Result<TokenStr
 
         Ok(&variant.ident)
     }).collect::<std::result::Result<Vec<_>, Error>>()?;
+
+    let mag = variants.len().ilog2();
+
+    if 2u32.pow(mag) != variants.len() as u32 {
+        return Err(Error::new(Span::call_site(),"BitfieldSpecifier expected a number of variants which is a power of 2"));
+    }
 
     let bit_size: TokenStream = variants.iter().fold(quote!(0), |acc, e| {
         quote!{
