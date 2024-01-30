@@ -47,15 +47,15 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
         let field_ident = field.ident.clone().unwrap();
         let ty = &field.ty;
         let setup = quote!(
-            const prev_bits: usize = #prev;
+            const PREV_BITS: usize = #prev;
 
-            const start_bytes: usize = prev_bits/8;
-            const start_bits: usize = prev_bits%8;
+            const START_BYTES: usize = PREV_BITS/8;
+            const START_BITS: usize = PREV_BITS%8;
 
-            const last_bits: usize = (prev_bits + <#ty as ::bitfield::Specifier>::BITS);
+            const LAST_BITS: usize = (PREV_BITS + <#ty as ::bitfield::Specifier>::BITS);
             
-            const end_bytes: usize = last_bits/8;
-            const end_bits: usize = last_bits%8;
+            const END_BYTES: usize = LAST_BITS/8;
+            const END_BITS: usize = LAST_BITS%8;
         );
 
         prev.extend(quote!(+ <#ty as ::bitfield::Specifier>::BITS));
@@ -73,71 +73,228 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
             #vis fn #getter(&self) -> <#ty as ::bitfield::Specifier>::Ty {
                 #setup
 
-                if start_bytes == end_bytes {
-                    const start_mask: u8 = (0b1111_1111u8.overflowing_shr(start_bits as u32)).0;
-                    const end_mask: u8 = (0b1111_1111u8.overflowing_shl((8-end_bits) as u32)).0;
+                let mut arr = [0; (<#ty as ::bitfield::Specifier>::BITS + 7)/8];
 
-                    return ((self.data[start_bytes] & start_mask & end_mask) >> (8 - end_bits)).try_into().unwrap();
+                if START_BYTES == END_BYTES {
+                    const START_MASK: u8 = (0b1111_1111u8.overflowing_shr(START_BITS as u32)).0;
+                    const END_MASK: u8 = (0b1111_1111u8.overflowing_shl((8 - END_BITS) as u32))
+                        .0;
+
+                    arr[0] = (self.data[START_BYTES] & START_MASK & END_MASK) >> (8 - END_BITS);
+
+                    return ByteArray(arr).into();
                 }
 
-                const mask: u8 = (0b1111_1111 >> start_bits);
-                let mut total: <#ty as ::bitfield::Specifier>::Ty = (self.data[start_bytes] & mask).try_into().unwrap();
+                // 0            1           2
+                //[...._AAAA],[BBBB_BBBB],[CCCC_CCCC]
+                //to
+                //[...._AAAA],[BBBB_BBBB],[CCCC_CCCC]
+
+                if END_BITS == 0 {
+                    const START_MASK: u8 = 0b1111_1111u8.overflowing_shr(START_BITS as u32).0;
+
+                    arr[0] = self.data[START_BYTES] & START_MASK;
+
+                    #[allow(clippy::reversed_empty_ranges)]
+                    arr[1..(END_BYTES - START_BYTES)].copy_from_slice(&self.data[START_BYTES+1..END_BYTES]);
 
 
-                #[allow(clippy::reversed_empty_ranges)]
-                for byte in start_bytes+1..end_bytes {
-                    total = total.overflowing_shl(8 as u32).0 + self.data[byte] as <#ty as ::bitfield::Specifier>::Ty;
+                    return ByteArray(arr).into();
                 }
 
-                if start_bytes != end_bytes && end_bits != 0{
-                    (total << end_bits) + self.data[end_bytes].overflowing_shr((8 - end_bits) as u32).0 as <#ty as ::bitfield::Specifier>::Ty
+
+                // 0            1           2
+                //[...._ABCD],[EFFF_FFFG],[HIII_J...]
+                //to
+                //[...._...A],[BCDE_FFFF],[FFGH_IIIJ]
+
+                // 0            1           2
+                //[...._.BCD],[EFFF_FFFG],[HIII_J...]
+                //to
+                //[...._....],[BCDE_FFFF],[FFGH_IIIJ]
+
+                const OFFSET: usize = (END_BYTES - START_BYTES + 1) - (<#ty as ::bitfield::Specifier>::BITS+7)/8;
+
+                if OFFSET == 0 {
+                    //[...._ABCD] -> [...._A...] requires mask 0000_1000
+                    //made with 0000_1111 & 1111_1000
+                    const START_MASK: u8 = 0b1111_1111u8.overflowing_shr(START_BITS as u32).0
+                        & 0b1111_1111u8.overflowing_shl((8-END_BITS) as u32).0;
                     
-                } else {
-                    total
+
+                    //takes [...._ABCD] -> [...._A...] -> [...._...A]
+                    arr[0] = (self.data[START_BYTES] & START_MASK).overflowing_shr((8 - END_BITS) as u32).0;
                 }
+
+                //[...._ABCD] -> [...._.BCD] requires mask 0000_0111
+                const A_MASK: u8 = 0b1111_1111u8.overflowing_shr(END_BITS as u32).0;
+
+                //[EFFF_FFFG] -> [EFFF_F...] requires mask 1111_1000
+                const B_MASK: u8 = 0b1111_1111u8.overflowing_shl((8 - END_BITS) as u32).0;
+                
+                #[allow(clippy::reversed_empty_ranges)]
+                for byte in START_BYTES+1..=END_BYTES {
+                    //[...._ABCD] | [EFFF_FFFG] -> [...._.BCD] | [EFFF_F...]
+                    //  -> [BCD._....] | [...E_FFFF] -> [BCDE_FFFF]
+                    //[...._ABCD] -> [...._.BCD] -> [BCD._....]
+                    //println!("{}, {}, {}", byte-START_BYTES, byte-1, byte);
+                    arr[byte-START_BYTES-OFFSET] = (self.data[byte-1] & A_MASK).overflowing_shl(END_BITS as u32).0
+                        //[EFFF_FFFG] -> [EFFF_F...] -> [...E_FFFF]
+                        | (self.data[byte] & B_MASK).overflowing_shr((8 - END_BITS) as u32).0;
+                }
+
+
+                ByteArray(arr).into()
             }
 
             #vis fn #setter(&mut self, mut val: <#ty as ::bitfield::Specifier>::Ty) {
                 #setup
 
+                let arr = ByteArray::<{(<#ty as ::bitfield::Specifier>::BITS+7)/8}>::from(val).0;
 
-                if start_bytes == end_bytes || (start_bytes+1 == end_bytes && end_bits == 0) {
-                    const mask: u8 = 0b1111_1111u8.overflowing_shr(start_bits as u32).0
-                        & 0b1111_1111u8.overflowing_shl((8-end_bits) as u32).0;
+                //[...._ABCD] -> [...A_BCD.]
+                if START_BYTES == END_BYTES || (START_BYTES+1 == END_BYTES && END_BITS == 0){
+                    //0b0001_1111 & 0b1111_1110 -> 0b0001_1110
 
-                    const rev_mask: u8 = mask ^ 0b1111_1111;
+                    //0b0001_1111
+                    const MASK: u8 = 0b1111_1111u8.overflowing_shr(START_BITS as u32).0
+                        //0b1111_1110
+                        & 0b1111_1111u8.overflowing_shl((8 - END_BITS) as u32).0;
 
-                    const val_mask: u8 = 0b1111_1111u8.overflowing_shr((8 - end_bits+start_bits) as u32).0;
 
-                    self.data[start_bytes] = (self.data[start_bytes] & rev_mask)
-                        | ((val as u8) & val_mask).overflowing_shl((8-end_bits) as u32).0;
-                    
+                    const INV_MASK: u8 = MASK ^ 0b1111_1111u8;
+
+                    //0b0001_1110 -> 0b0000_1111
+                    const ARR_MASK: u8 = MASK.overflowing_shr((8 - END_BITS) as u32).0;
+
+
+                    const SHIFT: usize = if END_BITS == 0 {
+                        0
+                    } else {
+                        8 - END_BITS
+                    };
+
+                    self.data[START_BYTES] = (self.data[START_BYTES] & INV_MASK)
+                        | (arr[0] & ARR_MASK) << SHIFT;
+
                     return;
                 }
 
 
-                if end_bits != 0 {
-                    const end_mask_val: u8 = 0b1111_1111u8.overflowing_shr((8-end_bits) as u32).0;
-                    const end_mask_data: u8 = 0b1111_1111u8.overflowing_shr(end_bits as u32).0;
+                // 0            1           2
+                //[...._AAAA],[BBBB_BBBB],[CCCC_CCCC]
+                //to
+                //[...._AAAA],[BBBB_BBBB],[CCCC_CCCC]
+
+                
+                if END_BITS == 0 {
+                    const START_MASK: u8 = 0b1111_1111u8.overflowing_shr(START_BITS as u32).0;
 
 
-                    self.data[end_bytes] = (((val as u8) & end_mask_val) << (8-end_bits))
-                        | (self.data[end_bytes] & end_mask_data);
+                    self.data[START_BYTES] = arr[0] & START_MASK;
+
+                    #[allow(clippy::reversed_empty_ranges)]
+                    self.data[START_BYTES+1..END_BYTES].copy_from_slice(&arr[1..(END_BYTES - START_BYTES)]);
+
+
+                    return;
+                }
+
+
+                // 0            1           2
+                //[...._...A],[BCDE_FFFF],[FFGH_IIIJ]
+                //to
+                //[...._ABCD],[EFFF_FFFG],[HIII_J...]
+
+                // 0            1           2
+                //[BCDE_FFFF],[FFGH_IIIJ]
+                //to
+                //[...._.BCD],[EFFF_FFFG],[HIII_J...]
+
+
+                const OFFSET: usize = (END_BYTES - START_BYTES + 1) - (<#ty as ::bitfield::Specifier>::BITS+7)/8;
+                
+                if OFFSET == 0 {
+                    //[****_***A] -> [...._...A] requires mask 0000_0001
+                    const START_MASK: u8 = 0b1111_1111u8.overflowing_shr((8 - END_BITS + START_BITS) as u32).0;
                     
-                    val >>= end_bits;
+                    //println!("arr: 0b{:08b}", arr[0]);
+                    //println!("start_mask: 0b{START_MASK:08b}");
+
+                    //for [...._ABCD] gives 0b1111_0000
+                    const DATA_MASK: u8 = 0b1111_1111u8.overflowing_shl((8 - START_BITS) as u32).0;
+
+                    //println!("data_mask: 0b{DATA_MASK:08b}");
+
+                    //takes [****_***A] -> [...._...A] -> [...._A...]
+
+                    self.data[START_BYTES] = (self.data[START_BYTES] & DATA_MASK)
+                        | (arr[0] & START_MASK).overflowing_shl((8 - END_BITS) as u32).0;
+                                        
+                    //takes [...._ABCD] -> [...._A...] -> [...._...A]
+                    //arr[0] = (self.data[START_BYTES] & START_MASK).overflowing_shr((8 - END_BITS) as u32).0;
+                }
+
+                //[BCDE_FFFF] -> [BCD._....] requires mask 1110_0000
+                const A_MASK: u8 = 0b1111_1111u8.overflowing_shl(END_BITS as u32).0;
+
+                //[BCDE_FFFF] -> [...E_FFFF] requires mask 0001_1111
+                const INV_A_MASK: u8 = A_MASK ^ 0b1111_1111u8;
+
+                //[ABCD_FFFF] -> [ABCD_F...] requires mask 1111_100
+                const B_MASK: u8 = 0b1111_1111u8.overflowing_shl((8 - END_BITS) as u32).0;
+
+                const INV_B_MASK: u8 = B_MASK ^ 0b1111_1111u8;
+
+                
+                #[allow(clippy::reversed_empty_ranges)]
+                for byte in START_BYTES+1..=END_BYTES {
+                    //[...._ABCD] | [EFFF_FFFG] -> [...._.BCD] | [EFFF_F...]
+                    //  -> [BCD._....] | [...E_FFFF] -> [BCDE_FFFF]
+                    //[...._ABCD] -> [...._.BCD] -> [BCD._....]
+                    //println!("{}, {}, {}", byte-START_BYTES, byte-1, byte);
+
+                    //[BCDE_FFFF] -> [BCD._....] -> [...._.BCD]
+                    self.data[byte-1] = (self.data[byte-1] & B_MASK)
+                        | ((arr[byte-START_BYTES-OFFSET] & A_MASK) >> END_BITS);
+
+                    //println!("p1: 0b{:08b}, 0b{:08b}", B_MASK, A_MASK);
+                    
+                    //[BCDE_FFFF] -> [...E_FFFF] -> [EFFF_F...]
+                    self.data[byte] = (self.data[byte] & INV_B_MASK)
+                        | ((arr[byte-START_BYTES-OFFSET] & INV_A_MASK) << (8 - END_BITS));
+
+                    //println!("p2: 0b{:08b}, 0b{:08b}", A_MASK, INV_A_MASK);
+                    
+                }
+
+                
+                //shouldn't go here
+
+
+
+                /*if END_BITS != 0 {
+                    const END_MASK_VAL: u8 = 0b1111_1111u8.overflowing_shr((8-END_BITS) as u32).0;
+                    const END_MASK_DATA: u8 = 0b1111_1111u8.overflowing_shr(END_BITS as u32).0;
+
+
+                    self.data[END_BYTES] = (((val as u8) & END_MASK_VAL) << (8-END_BITS))
+                        | (self.data[END_BYTES] & END_MASK_DATA);
+                    
+                    val >>= END_BITS;
                 }
 
                 #[allow(clippy::reversed_empty_ranges)]
-                for byte in (start_bytes+1..end_bytes).rev() {
+                for byte in (START_BYTES+1..END_BYTES).rev() {
                     self.data[byte] = (val & 0b1111_1111) as u8;
                     val >>= 8;
                 }
 
-                const start_mask_val: u8 = 0b1111_1111u8.overflowing_shr(start_bits as u32).0;
-                const start_mask_data: u8 = start_mask_val ^ 0b1111_1111;
+                const START_MASK_VAL: u8 = 0b1111_1111u8.overflowing_shr(START_BITS as u32).0;
+                const START_MASK_DATA: u8 = START_MASK_VAL ^ 0b1111_1111;
 
-                self.data[start_bytes] = ((val as u8) & start_mask_val) | (self.data[start_bytes] & start_mask_data);
-                
+                self.data[START_BYTES] = ((val as u8) & START_MASK_VAL) | (self.data[START_BYTES] & START_MASK_DATA);
+                */
             }
         )
 

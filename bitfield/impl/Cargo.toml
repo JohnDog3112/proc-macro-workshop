@@ -7,8 +7,6 @@ publish = false
 [lib]
 proc-macro = true
 
-[dev.dependencies]
-
 [dependencies]
 proc-macro2 = "1.0.78"
 quote = "1.0.35"

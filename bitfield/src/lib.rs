@@ -55,11 +55,124 @@ seq!(N in 33..=64 {
 
 type BitsType = usize;
 
+
+
 pub trait Specifier {
     const BITS: BitsType;
     type Ty;
 }
 
+fn primitive_into_arr<T, const N: usize>(mut val: T) -> Result<ByteArray<N>, core::num::TryFromIntError> 
+where
+    T: std::ops::Add,
+    T: TryInto<u8, Error = core::num::TryFromIntError>,
+    T: From<u8>,
+    T: std::ops::BitAnd<Output = T>,
+    T: std::ops::ShrAssign<u8>,
+    T: Copy,
+{
+    let mut arr = [0u8; N];
+
+    for i in (0..N).rev() {
+        arr[i] = (
+            val 
+            & T::from(0b1111_1111)
+        ).try_into()?;
+
+        val >>= 8;
+    }
+
+    Ok(ByteArray(arr))
+}
+
+impl From<u8> for ByteArray<1> {
+    fn from(value: u8) -> Self {
+        ByteArray([value])
+    }
+}
+
+impl From<u16> for ByteArray<2> {
+    fn from(value: u16) -> Self {
+        primitive_into_arr(value).unwrap()
+    }
+}
+
+seq!(N in 3..=4 {
+    impl From<u32> for ByteArray<N> {
+        fn from(value: u32) -> Self {
+            primitive_into_arr(value).unwrap()
+        }
+    }
+});
+
+
+seq!(N in 5..=8 {
+    impl From<u64> for ByteArray<N> {
+        fn from(value: u64) -> Self {
+            primitive_into_arr(value).unwrap()
+        }
+    }
+});
+
+seq!(N in 9..=16 {
+    impl From<u128> for ByteArray<N> {
+        fn from(value: u128) -> Self {
+            primitive_into_arr(value).unwrap()
+        }
+    }
+});
+
+
+impl From<ByteArray<1>> for u8 {
+    fn from(value: ByteArray<1>) -> Self {
+        value.0[0]
+    }
+}
+
+impl From<ByteArray<2>> for u16 {
+    fn from(val: ByteArray<2>) -> Self {
+        ((val.0[0] as u16) << 8) + val.0[1] as u16
+    }
+}
+
+macro_rules! expand_inner {
+    ($val:ident, $n:literal) => {
+        seq!(G in 0..$n { 
+            0
+            #(
+            + (($val.0[G] as Self) << (8*($n-G-1)))
+            )*
+         })
+    }
+}
+
+seq!(N in 3..=4 {
+    impl From<ByteArray<N>> for u32 {
+        fn from(val: ByteArray<N>) -> Self {
+            expand_inner!(val, N)
+        }
+    }
+});
+
+
+seq!(N in 5..=8 {
+    impl From<ByteArray<N>> for u64 {
+        fn from(val: ByteArray<N>) -> Self {
+            expand_inner!(val, N)
+        }
+    }
+});
+
+seq!(N in 9..=16 {
+    impl From<ByteArray<N>> for u128 {
+        fn from(val: ByteArray<N>) -> Self {
+            expand_inner!(val, N)
+        }
+    }
+});
+
+#[derive(Debug)]
+pub struct ByteArray<const N: usize>(pub [u8; N]);
 
 
 pub mod checks {
