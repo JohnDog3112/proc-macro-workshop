@@ -1,5 +1,5 @@
 use proc_macro2::{TokenStream, Ident};
-use syn::{Item, ItemStruct, Result};
+use syn::{Item, ItemStruct, Result, Error};
 use quote::quote;
 
 use super::ProcStream;
@@ -259,6 +259,51 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
         )
 
     }).collect();
+
+    let field_checks: TokenStream = struc.fields.iter().filter_map(|variant| {
+
+        let mut num: Option<usize> = None;
+
+        for attr in &variant.attrs {
+            match &attr.meta {
+                syn::Meta::NameValue(name_val) => {
+                    match &name_val.value {
+                        syn::Expr::Lit(lit) => {
+                            match &lit.lit {
+                                syn::Lit::Int(i_num) => {
+                                    match i_num.base10_parse() {
+                                        Ok(i_num) => {
+                                            if num.is_some() {
+                                                return Some(Err(Error::new_spanned(lit.clone(), "can't define more than one bit attribute!")))
+                                            }
+                                            num = Some(i_num);
+                                        },
+                                        Err(err) => return Some(Err(err)),
+                                    }
+                                },
+                                _ => return Some(Err(Error::new_spanned(lit.clone(), "expected integer literal"))),
+                            }
+                        },
+                        _ => return Some(Err(Error::new_spanned(name_val.value.clone(), "expected integer literal"))),
+                    }
+                },
+                _ => return Some(Err(Error::new_spanned(attr.clone(), "expected #[bits = <num>]")))
+            }
+        }
+
+        let num = match num {
+            Some(num) => num,
+            None => return None,
+        };
+
+        let ty = &variant.ty;
+        
+        Some(Ok(quote!{
+            let _: [(); <#ty as ::bitfield::Specifier>::BITS] = [(); #num];
+        }))
+
+    }).collect::<std::result::Result<TokenStream, Error>>()?;
+    
     Ok(
         quote!(
             #vis struct #ident {
@@ -271,6 +316,7 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
                         ();
                         (0 #size) % 8
                     ]>();
+                    #field_checks
                     Self {
                         data: [0; (0 #size)/8]
                     }

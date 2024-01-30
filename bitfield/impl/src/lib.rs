@@ -73,6 +73,8 @@ fn bitfield_specifier_enum(inp: &DeriveInput, enu: &DataEnum) -> Result<TokenStr
         }
     }).collect();
 
+    
+
     //eprintln!("magnitude: {}", mag);
     Ok(quote!{
         impl ::bitfield::Specifier for #ident {
@@ -81,10 +83,10 @@ fn bitfield_specifier_enum(inp: &DeriveInput, enu: &DataEnum) -> Result<TokenStr
         }
 
         impl #ident {
-            pub fn new() {
+            pub fn new() -> Self{
                 let _ = ::bitfield::checks::check_in_range::<[(); if #bit_size as usize == 2usize.pow(Self::BITS as u32)-1 {1} else {0}]>();
 
-                //Self::from(0u64)
+                Self::try_from(0u64).unwrap()
             }
         }
 

@@ -10,19 +10,20 @@ use bitfield::*;
 
 #[bitfield]
 pub struct RedirectionTableEntry {
-    acknowledged: bool,
+    #[bits = 1]
     trigger_mode: TriggerMode,
+    #[bits = 2]
     delivery_mode: DeliveryMode,
-    reserved: B3,
+    reserved: B4,
 }
 
-#[derive(BitfieldSpecifier, Debug, PartialEq)]
+#[derive(BitfieldSpecifier, Debug)]
 pub enum TriggerMode {
     Edge = 0,
     Level = 1,
 }
 
-#[derive(BitfieldSpecifier, Debug, PartialEq)]
+#[derive(BitfieldSpecifier, Debug)]
 pub enum DeliveryMode {
     Fixed = 0b000,
     Lowest = 0b001,
@@ -36,10 +37,6 @@ pub enum DeliveryMode {
 
 fn main() {
 
-
-
-    println!("mag1: {}, mag2: {}", 2usize.pow(TriggerMode::BITS as u32)-1, TriggerMode::BITS2);
-    println!("a: mag1: {}, mag2: {}", 2usize.pow(DeliveryMode::BITS as u32)-1, DeliveryMode::BITS2);
 
 }
 
