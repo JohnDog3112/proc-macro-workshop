@@ -11,8 +11,17 @@
 // From the perspective of a user of this crate, they get all the necessary APIs
 // (macro, trait, struct) through the one bitfield crate.
 pub use bitfield_impl::bitfield;
+pub use bitfield_impl::BitfieldSpecifier;
 
 // TODO other things
+
+pub const fn max_usize(a: usize, b: usize) -> usize {
+    if a < b {
+        b
+    } else {
+        a
+    }
+}
 
 use seq::seq;
 
@@ -52,6 +61,10 @@ seq!(N in 33..=64 {
     }
 });
 
+impl Specifier for bool {
+    const BITS: BitsType = 1;
+    type Ty = bool;
+}
 
 type BitsType = usize;
 
@@ -106,7 +119,7 @@ seq!(N in 3..=4 {
 });
 
 
-seq!(N in 5..=8 {
+seq!(N in 0..=8 {
     impl From<u64> for ByteArray<N> {
         fn from(value: u64) -> Self {
             primitive_into_arr(value).unwrap()
@@ -121,6 +134,16 @@ seq!(N in 9..=16 {
         }
     }
 });
+
+impl From<bool> for ByteArray<1> {
+    fn from(value: bool) -> Self {
+        ByteArray(if value {
+            [1;1]
+        } else {
+            [0;1]
+        })
+    }
+}
 
 
 impl From<ByteArray<1>> for u8 {
@@ -155,7 +178,13 @@ seq!(N in 3..=4 {
 });
 
 
-seq!(N in 5..=8 {
+
+impl From<ByteArray<1>> for u64 {
+    fn from(val: ByteArray<1>) -> Self {
+        val.0[0] as Self
+    }
+}
+seq!(N in 2..=8 {
     impl From<ByteArray<N>> for u64 {
         fn from(val: ByteArray<N>) -> Self {
             expand_inner!(val, N)
@@ -170,6 +199,12 @@ seq!(N in 9..=16 {
         }
     }
 });
+
+impl From<ByteArray<1>> for bool {
+    fn from(val: ByteArray<1>) -> Self {
+        val.0[0] != 0
+    }
+}
 
 #[derive(Debug)]
 pub struct ByteArray<const N: usize>(pub [u8; N]);
