@@ -35,8 +35,5 @@ pub enum DeliveryMode {
     External = 0b111,
 }
 
-fn main() {
-
-
-}
+fn main() {}
 

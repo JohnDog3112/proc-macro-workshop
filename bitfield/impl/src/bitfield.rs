@@ -1,5 +1,5 @@
 use proc_macro2::{TokenStream, Ident};
-use syn::{Item, ItemStruct, Result, Error};
+use syn::{Item, ItemStruct, Result, Error, LitInt};
 use quote::quote;
 
 use super::ProcStream;
@@ -262,7 +262,7 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
 
     let field_checks: TokenStream = struc.fields.iter().filter_map(|variant| {
 
-        let mut num: Option<usize> = None;
+        let mut num: Option<LitInt> = None;
 
         for attr in &variant.attrs {
             match &attr.meta {
@@ -271,15 +271,10 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
                         syn::Expr::Lit(lit) => {
                             match &lit.lit {
                                 syn::Lit::Int(i_num) => {
-                                    match i_num.base10_parse() {
-                                        Ok(i_num) => {
-                                            if num.is_some() {
-                                                return Some(Err(Error::new_spanned(lit.clone(), "can't define more than one bit attribute!")))
-                                            }
-                                            num = Some(i_num);
-                                        },
-                                        Err(err) => return Some(Err(err)),
+                                    if num.is_some() {
+                                        return Some(Err(Error::new_spanned(lit.clone(), "can't define more than one bit attribute!")))
                                     }
+                                    num = Some(i_num.clone());
                                 },
                                 _ => return Some(Err(Error::new_spanned(lit.clone(), "expected integer literal"))),
                             }
@@ -296,10 +291,18 @@ fn bitfield_struct(_args: ProcStream, struc: ItemStruct) -> Result<TokenStream> 
             None => return None,
         };
 
-        let ty = &variant.ty;
+        let ty = &variant.ty ;
+
+        let type_ident = Ident::new("tmp", num.span());
+
+        //let type_ident = Ident::new(&format!("[(); {num}]"), num.span());
         
         Some(Ok(quote!{
-            let _: [(); <#ty as ::bitfield::Specifier>::BITS] = [(); #num];
+            {
+                let #type_ident = [(); #num];
+                let _: [(); <#ty as ::bitfield::Specifier>::BITS] = #type_ident;
+            }
+            
         }))
 
     }).collect::<std::result::Result<TokenStream, Error>>()?;
